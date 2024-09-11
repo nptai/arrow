@@ -365,6 +365,60 @@ INSTANTIATE_TEST_SUITE_P(SingleColumnWriteCSVTest, TestWriteCSV,
                              "\n9999\n\n-15\n",
                              Status::OK())));
 
+INSTANTIATE_TEST_SUITE_P(NestedListColumnWriteCSVTest, TestWriteCSV,
+                         ::testing::Values(WriterTestParams(
+                             schema({field("list", list(field("i64", int64()))), field("list2", list(field("i64", int64())))}),
+                             R"([{ "list": [9999], "list2": [1]}, {"list2": [-1]}, { "list": [-15], "list2": [2]}])", WriteOptions(),
+                             R"("list","list2")"
+                             "\n[9999],[1]\n[],[-1]\n[-15],[2]\n",
+                             Status::OK())));
+
+INSTANTIATE_TEST_SUITE_P(NestedListOfListColumnWriteCSVTest, TestWriteCSV,
+                         ::testing::Values(WriterTestParams(
+                             schema({field("list", list(field("list2", list(field("i64", int64())))))}),
+                             R"([{ "list": [[9999],[0, 12]] }, { "list": [[10, 2],[20]]}])", WriteOptions(),
+                             R"("list")"
+                             "\n[[9999],[0,12]]\n[[10,2],[20]]\n",
+                             Status::OK())));
+
+INSTANTIATE_TEST_SUITE_P(NestedStructColumnWriteCSVTest, TestWriteCSV,
+                         ::testing::Values(WriterTestParams(
+                             schema({field("struct", struct_({field("a", int64()), field("b", int64())}))}),
+                             R"([{"struct": {"a": 10, "b":2}}
+                               , {"struct": {"a": 20, "b":1}}])", WriteOptions(),
+                             R"("struct")"
+                             "\n{a:10,b:2}\n{a:20,b:1}\n",
+                             Status::OK())));
+
+INSTANTIATE_TEST_SUITE_P(NestedMixedColumnWriteCSVTest, TestWriteCSV,
+                         ::testing::Values(WriterTestParams(
+                             schema({field("struct", struct_({field("a", int64()), field("b", int64())})),
+                                    field("list", list(field("list2", list(field("i64", int64())))))}),
+                             R"([{"struct": {"a": 10, "b":2}, "list": [[9999],[0, 12]] }
+                               , {"struct": {"a": 20, "b":1}, "list": [[10, 2],[20]] }])", WriteOptions(),
+                             R"("struct","list")"
+                             "\n{a:10,b:2},[[9999],[0,12]]\n{a:20,b:1},[[10,2],[20]]\n",
+                             Status::OK())));
+
+INSTANTIATE_TEST_SUITE_P(NestedComplexColumnWriteCSVTest, TestWriteCSV,
+                         ::testing::Values(WriterTestParams(
+                             schema({field("struct", struct_({field("a", int64()), field("b", list(field("i64", int64())))})),
+                                    field("list", list(field("list2", list(field("i64", int64())))))}),
+                             R"([{"struct": {"a": 10, "b":[2,5,6]}, "list": [[9999],[0, 12]] }
+                               , {"struct": {"a": 20, "b":[1,-2]}, "list": [[10, 2],[20]] }])", WriteOptions(),
+                             R"("struct","list")"
+                             "\n{a:10,b:[2,5,6]},[[9999],[0,12]]\n{a:20,b:[1,-2]},[[10,2],[20]]\n",
+                             Status::OK())));
+
+INSTANTIATE_TEST_SUITE_P(NestedComplex2ColumnWriteCSVTest, TestWriteCSV,
+                         ::testing::Values(WriterTestParams(
+                             schema({field("struct", struct_({field("a", struct_({field("c", int64()), field("d", int64())})), field("b", list(field("i64", int64())))})),
+                                    field("list", list(field("list2", list(field("i64", int64())))))}),
+                             R"([{"struct": {"a": {"c": 100, "d": 101 }, "b":[2,5,6]}, "list": [[9999],[0, 12]] }
+                               , {"struct": {"a": {"c": 1, "d": 2 }, "b":[1,-2]}, "list": [[10, 2],[20]] }])", WriteOptions(),
+                             R"("struct","list")"
+                             "\n{a:{c:100,d:101},b:[2,5,6]},[[9999],[0,12]]\n{a:{c:1,d:2},b:[1,-2]},[[10,2],[20]]\n",
+                             Status::OK())));
 #ifndef _WIN32
 // TODO(ARROW-13168):
 INSTANTIATE_TEST_SUITE_P(

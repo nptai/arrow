@@ -28,6 +28,9 @@
 #include "arrow/util/logging.h"
 #include "arrow/visit_data_inline.h"
 #include "arrow/visit_type_inline.h"
+#include "arrow/array/builder_binary.h"
+#include "arrow/pretty_print.h"
+#include <sstream>
 
 #include <memory>
 
@@ -121,6 +124,57 @@ class ColumnPopulator {
 
   virtual ~ColumnPopulator() = default;
 
+  Status CastListArrayToStringArray(StringBuilder& builder, const Array& data, std::ostream* out) {
+    std::shared_ptr<ListArray> list = std::make_shared<ListArray>(data.data());
+    PrettyPrintOptions opt;
+    opt.skip_new_lines = true;
+    opt.container_window = INT_MAX;
+    for (int i = 0; i < list->length(); ++i) {
+      std::stringstream ss;
+      RETURN_NOT_OK(PrettyPrint(*list->values()->Slice(list->value_offset(i), list->value_length(i)), opt, &ss));
+      if (out == nullptr) {
+        RETURN_NOT_OK(builder.Append(ss.str().c_str(), ss.str().length()));
+      } else {
+        *out << ss.str();
+      }
+    }
+    return Status::OK();
+  }
+
+  Status CastStructArrayToStringArray(StringBuilder& builder, const Array& data, std::ostream* out) {
+    std::shared_ptr<StructArray> list = std::make_shared<StructArray>(data.data());
+    PrettyPrintOptions opt;
+    opt.skip_new_lines = true;
+    opt.container_window = INT_MAX;
+    for (int i = 0; i < list->length(); ++i) {
+      std::string tmp = "{";
+      std::shared_ptr<StructArray> slice = checked_pointer_cast<StructArray>(list->Slice(i, 1));
+      for (int j = 0; j < slice->num_fields(); ++j) {
+        std::stringstream ss;
+        std::shared_ptr<Array> field = slice->field(j);
+        tmp += slice->struct_type()->field(j)->name() + ":";
+        if (field->type()->id() == Type::STRUCT) {
+          RETURN_NOT_OK(CastStructArrayToStringArray(builder, *field, &ss));
+          tmp.append(ss.str().c_str(), ss.str().length());
+        } else {
+          RETURN_NOT_OK(PrettyPrint(*field, opt, &ss));
+          tmp.append(ss.str().c_str()+1, ss.str().length() - 2);
+        }
+
+        if (j < slice->num_fields()-1) {
+          tmp.append(",");
+        }
+      }
+      tmp += "}";
+      if (out == nullptr) {
+        RETURN_NOT_OK(builder.Append(tmp.c_str(), tmp.length()));
+      } else {
+        *out << tmp;
+      }
+    }
+    return Status::OK();
+  }
+
   // Adds the number of characters each entry in data will add to to elements
   // in row_lengths.
   Status UpdateRowLengths(const Array& data, int64_t* row_lengths) {
@@ -128,7 +182,25 @@ class ColumnPopulator {
     // Populators are intented to be applied to reasonably small data.  In most cases
     // threading overhead would not be justified.
     ctx.set_use_threads(false);
-    if (data.type() && is_large_binary_like(data.type()->id())) {
+    if (data.type()->id() == Type::LIST || data.type()->id() == Type::STRUCT) {
+      StringBuilder builder(pool_);
+      switch (data.type()->id())
+      {
+      case Type::LIST:
+        /* code */
+        RETURN_NOT_OK(CastListArrayToStringArray(builder, data, nullptr));
+        break;
+      case Type::STRUCT:
+        RETURN_NOT_OK(CastStructArrayToStringArray(builder, data, nullptr));
+        break;
+      default:
+        // return error;
+        break;
+      }
+      std::shared_ptr<ArrayData> tmp;
+      RETURN_NOT_OK(builder.FinishInternal(&tmp));
+      array_ = MakeArray(tmp);
+    } else if (data.type() && is_large_binary_like(data.type()->id())) {
       ASSIGN_OR_RAISE(array_, compute::Cast(data, /*to_type=*/large_utf8(),
                                             compute::CastOptions(), &ctx));
     } else {
@@ -470,6 +542,13 @@ Result<std::unique_ptr<ColumnPopulator>> MakePopulator(
         case QuotingStyle::AllValid:
           return std::make_unique<QuotedColumnPopulator>(pool, end_chars, null_string);
       }
+    }
+    if constexpr (std::is_same<Type, ListType>::value ||
+                  std::is_same<Type, StructType>::value) {
+      // Determine what ColumnPopulator to use based on desired CSV quoting style.
+      return std::make_unique<UnquotedColumnPopulator>(
+          pool, end_chars, delimiter, null_string,
+          /*reject_values_with_quotes=*/false);
     }
 
     if constexpr (std::is_same<Type, DictionaryType>::value) {

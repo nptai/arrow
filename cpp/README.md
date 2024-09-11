@@ -32,3 +32,24 @@ to install pre-compiled binary versions of the library.
 Please refer to our latest [C++ Development Documentation][1].
 
 [1]: https://github.com/apache/arrow/blob/main/docs/source/developers/cpp
+
+
+/*
+
+We have a parquet file, that can contain columns with primitives type, also list and struct.
+How to dump that file into text format, which is similar to CSV.
+Built in CSV writer rejects complex type: https://github.com/apache/arrow/blob/main/cpp/src/arrow/csv/writer.cc#L480
+This writer does not need to be CSV compatible nor reading back with identical table.
+For list of values: [v1,v2,v3]
+For list of lists: [[v1,v2,v3],[z1,z2]]
+For struct: {key:value, ...} this can be the same with JSON but within single line.
+
+This problem does not need to be fully handle all case, just list/list of list are alredy good and your comment on how to handle the rest.
+
+parquet-reader <parquet-file-path>
+
+{metadata}
+{array 1}
+{array 2 ... ***}
+{array 3 ... ***}
+*/
